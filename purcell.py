@@ -4,37 +4,39 @@ from qibocal.protocols.utils import baseline_als
 from scipy.signal import find_peaks, peak_widths
 
 import matplotlib.pyplot as plt
+from numpy import cos, exp, abs
+
+### auxiliar function to compute spectrum signal from parameters ###
+def abs_s_out_in(
+    w, # frequency at which to compute the absolute value of the spectrum
+    A, # amplitude
+    k, # tilt in the spectrum
+    w_0, # center of the spectrum
+    phi, # phase rotation induced by capacitive coupling to other lines
+    k_p, # external coupling rate of the Purcell filter
+    w_p, # Purcell filter frequency
+    w_r, # resonator frequency, either for ground or excited state
+    J, # the transmon resonator coupling rate
+):
+    return (A + (k*(w-w_0)/w_0 if w_0!=0 else k*w))*abs(cos(phi)-exp(1j*phi)*(k_p*(-2j*(w-w_r)))/(4*J**2+(k_p-2j*(w-w_p))*(-2j*(w-w_r))))
 
 def fit_purcell(
     frequencies,
     data, # signal magnitude for each frequency value
     sigmas, # uncertainties
 ):
-    ##### first step we find an approximate linear form to the baseline for an initial guess to A, k and w_0 #####
-    def linear_baseline(w, A, k, w_0):
-        return k * (w - w_0) + A
-
-    baseline_params, covariance = curve_fit(
-        linear_baseline,
-        frequencies,
-        data,
-        sigma=sigmas,
-        absolute_sigma=True)
-
-    A_guess, k_guess, w_0_guess = baseline_params # this will be used as initial guesses
-
-    ##### secondly, we find the peaks to have initial guesses for w_l, w_k, k_l, k_h #####
+    ##### first we find the peaks to have initial guesses for w_l, w_k, k_l, k_h #####
     # removing baseline to find the peaks
-    z = baseline_als(data=data,lamda=1e9,p=0.99)
+    z = baseline_als(data=data,lamda=1e9,p=0.999)
 
     # finding the peaks and their widths
-    peaks, properties = find_peaks(-(data-z),height=0.0) # height filters peaks above 0
+    peaks, properties = find_peaks(-(data-z)/abs(min(data-z)),height=0.0, prominence=0.5) # height filters peaks above 0
     rel_height = 0.9
     widths = peak_widths(-(data-z), peaks, rel_height=rel_height)
 
     # Print results
     print("Peak indices:", peaks)
-    print("Peak heights:", -properties["peak_heights"])
+    print("Peak heights:", -properties["peak_heights"]*abs(min(data-z)))
     print(f"Peak widths at {rel_height*100 :.0f}% height:", widths[0])
 
     # determining the guesses
@@ -59,14 +61,29 @@ def fit_purcell(
     solution = fsolve(equations, [1, 1, 1, 1])
     w_r_guess, w_p_guess, k_p_guess, J_guess = solution
 
+    ##### Then we fit an approximate linear form to the baseline for an initial guess to A, k and w_0 #####
+    # the linear fit
+    def linear_baseline(w, k, A_minus_k_times_w_0):
+        #return k * (w - w_0) + A
+        return k * w + A_minus_k_times_w_0
+
+    baseline_params, _covariance = curve_fit(
+        linear_baseline,
+        frequencies,
+        data,
+        sigma=sigmas,
+        absolute_sigma=True)
+    
+    k_guess, A_guess = baseline_params
+    w_0_guess = 1 # fixed for now; choice was random
+
     ##### wrapping up all the initial guesses and fitting the model to the original data #####
     # initial guess
-    initial_guess = [A_guess, k_guess, w_0_guess, 0, k_p_guess, w_p_guess, w_r_guess, J_guess] # phi is assumed to be zero here
+    initial_guess = [A_guess, k_guess, w_0_guess, 0, k_p_guess, w_p_guess, w_r_guess, J_guess] # phi is assumed to be zero here for now
 
     # auxiliar function to compute the residuals
     def residuals(params, w, y, y_err):
-        A,k,w_0,phi,k_p,w_p,w_res,J = params
-        return ((A + k*(w-w_0))*abs(np.cos(phi)-np.exp(1j*phi)*(k_p*(-2j*(w-w_res)))/(4*J**2+(k_p-2j*(w-w_p))*(-2j*(w-w_res)))) - y)/y_err
+        return (abs_s_out_in(w,*params) - y)/y_err
     
     #fitting original data from these guesses
     result = least_squares(residuals, x0=initial_guess, args=(frequencies, data, sigmas))
@@ -74,11 +91,11 @@ def fit_purcell(
     chi2 = sum(result.fun**2)
     red_chi2 = chi2/dof
 
-    ##### defining the fitting function for plotting ends #####
-    A,k,w_0,phi,k_p,w_p,w_r,J = result.x
-    fit = lambda w: (A + k*(w-w_0))*abs(np.cos(phi)-np.exp(1j*phi)*(k_p*(-2j*(w-w_r)))/(4*J**2+(k_p-2j*(w-w_p))*(-2j*(w-w_r))))
+    # plotting
+    plt.plot(frequencies,abs_s_out_in(frequencies, *result.x), label="Purcell fit")
+    plt.errorbar(frequencies,data,yerr=sigmas, label="data",fmt=".", capsize=3, ecolor="gray", alpha=0.4)
+    plt.xlabel("w(MHz)")
+    plt.ylabel(r"Raw signal ($\mu V$)")
+    plt.legend()
 
-    plt.plot(frequencies,fit(frequencies))
-    plt.errorbar(frequencies,data,yerr=sigmas)
-
-    return fit, red_chi2, result.x
+    return red_chi2, result.x
