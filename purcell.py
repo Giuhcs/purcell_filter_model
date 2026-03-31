@@ -29,6 +29,12 @@ def fit_purcell(
     # removing baseline to find the peaks
     z = baseline_als(data=data,lamda=1e9,p=0.999)
 
+    # initial guesses for A, k and w_0 from removal
+    w_0=frequencies[len(frequencies)//2]
+    w_0_guess = w_0
+    k_guess = (z[-1]-z[0])/(frequencies[-1]-frequencies[0])
+    A_guess = z[len(frequencies)//2]
+
     # finding the peaks and their widths
     peaks, properties = find_peaks(-(data-z)/abs(min(data-z)),height=0.0, prominence=0.5) # height filters peaks above 0
     rel_height = 0.9
@@ -60,23 +66,7 @@ def fit_purcell(
     # solving and getting the intitial guesses for w_r, w_p, k_p and J
     solution = fsolve(equations, [1, 1, 1, 1])
     w_r_guess, w_p_guess, k_p_guess, J_guess = solution
-
-    ##### Then we fit an approximate linear form to the baseline for an initial guess to A, k and w_0 #####
-    # the linear fit
-    def linear_baseline(w, k, A_minus_k_times_w_0):
-        #return k * (w - w_0) + A
-        return k * w + A_minus_k_times_w_0
-
-    baseline_params, _covariance = curve_fit(
-        linear_baseline,
-        frequencies,
-        data,
-        sigma=sigmas,
-        absolute_sigma=True)
     
-    k_guess, A_guess = baseline_params
-    w_0_guess = 1 # fixed for now; choice was random
-
     ##### wrapping up all the initial guesses and fitting the model to the original data #####
     # initial guess
     initial_guess = [A_guess, k_guess, w_0_guess, 0, k_p_guess, w_p_guess, w_r_guess, J_guess] # phi is assumed to be zero here for now
@@ -94,6 +84,7 @@ def fit_purcell(
     # plotting
     plt.plot(frequencies,abs_s_out_in(frequencies, *result.x), label="Purcell fit")
     plt.errorbar(frequencies,data,yerr=sigmas, label="data",fmt=".", capsize=3, ecolor="gray", alpha=0.4)
+    plt.plot(frequencies,z, label="baseline")
     plt.xlabel("w(MHz)")
     plt.ylabel(r"Raw signal ($\mu V$)")
     plt.legend()
