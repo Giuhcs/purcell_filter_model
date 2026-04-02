@@ -6,7 +6,7 @@ from scipy.signal import find_peaks, peak_widths
 import matplotlib.pyplot as plt
 from numpy import cos, exp, abs
 
-### auxiliar function to compute spectrum signal from parameters ###
+### auxiliar function to compute (real part of the) signal from parameters ###
 def abs_s_out_in(
     w, # frequency at which to compute the absolute value of the spectrum
     A, # amplitude
@@ -22,7 +22,7 @@ def abs_s_out_in(
 
 def fit_purcell(
     frequencies,
-    data, # signal magnitude for each frequency value
+    data, # signal for each frequency value
     sigmas, # uncertainties
 ):
     ##### first we find the peaks to have initial guesses for w_l, w_k, k_l, k_h #####
@@ -30,14 +30,14 @@ def fit_purcell(
     z = baseline_als(data=data,lamda=1e9,p=0.999)
 
     # initial guesses for A, k and w_0 from removal
-    w_0=frequencies[len(frequencies)//2]
+    w_0=frequencies[len(frequencies)//2] # the center of the spectrum is chosen to be the middle point of frequencies
     w_0_guess = w_0
-    k_guess = (z[-1]-z[0])/(frequencies[-1]-frequencies[0])
-    A_guess = z[len(frequencies)//2]
+    k_guess = (z[-1]-z[0])/(frequencies[-1]-frequencies[0]) * w_0_guess # slope of the baseline as guess for k
+    A_guess = z[len(frequencies)//2] # value of the baseline in the middle point as guess for A
 
     # finding the peaks and their widths
     peaks, properties = find_peaks(-(data-z)/abs(min(data-z)),height=0.0, prominence=0.5) # height filters peaks above 0
-    rel_height = 0.9
+    rel_height = 0.9 # no particular reason for this choice
     widths = peak_widths(-(data-z), peaks, rel_height=rel_height)
 
     # Print results
@@ -69,7 +69,8 @@ def fit_purcell(
     
     ##### wrapping up all the initial guesses and fitting the model to the original data #####
     # initial guess
-    initial_guess = [A_guess, k_guess, w_0_guess, 0, k_p_guess, w_p_guess, w_r_guess, J_guess] # phi is assumed to be zero here for now
+    phi_guess = 0.5 # phi is fixed to a random non-vanishing number for now
+    initial_guess = [A_guess, k_guess, w_0_guess, phi_guess, k_p_guess, w_p_guess, w_r_guess, J_guess]
 
     # auxiliar function to compute the residuals
     def residuals(params, w, y, y_err):
@@ -84,7 +85,7 @@ def fit_purcell(
     # plotting
     plt.plot(frequencies,abs_s_out_in(frequencies, *result.x), label="Purcell fit")
     plt.errorbar(frequencies,data,yerr=sigmas, label="data",fmt=".", capsize=3, ecolor="gray", alpha=0.4)
-    plt.plot(frequencies,z, label="baseline")
+    plt.plot(frequencies,z, label="baseline from ALS")
     plt.xlabel("w(MHz)")
     plt.ylabel(r"Raw signal ($\mu V$)")
     plt.legend()
