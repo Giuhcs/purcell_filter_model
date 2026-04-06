@@ -72,34 +72,22 @@ def fit_purcell(
     
     ##### wrapping up all the initial guesses and fitting the model to the original data #####
     # initial guess
-    phi_guess = phases[np.argmax(frequencies - w_r_guess)] # phi_guess is the taken as the phase of the signal point corresponding to the furthest frequency to w_r
+    phi_guess = phases[np.argmax(frequencies - w_r_guess)] # phi_guess is taken as the phase of the signal point corresponding to the furthest frequency to w_r
     initial_guess = [A_guess, k_guess, w_0_guess, phi_guess, k_p_guess, w_p_guess, w_r_guess, J_guess]
 
-    # auxiliar function to compute the residuals
-    def residuals(params, w, y):
-        return (abs(s_out_in(w,*params)) - y)
-    
-    #fitting original data from these guesses
-    result = least_squares(residuals, x0=initial_guess, args=(frequencies, data))
-    dof = len(data)-len(result.x)
-    chi2 = sum(result.fun**2)
-    red_chi2 = chi2/dof
+    # model to fit
+    def model(w,A,k,w_0,phi,k_p,w_p,w_r,J): # params should follow the same ordering convention as always
+        return abs(s_out_in(w,A,k,w_0,phi,k_p,w_p,w_r,J))
 
-    # # plotting
-    # plt.plot(frequencies,abs(s_out_in(frequencies, *result.x)), label="Purcell fit")
-    # # plt.errorbar(frequencies,data,yerr=sigmas, label="data",fmt=".", capsize=3, ecolor="gray", alpha=0.4)
-    # plt.scatter(frequencies,data,label="data",alpha=0.3, c="orange")
-    # plt.plot(frequencies,z, label="baseline from ALS", c="green")
-    # plt.xlabel("w(MHz)")
-    # plt.ylabel(r"Raw signal ($\mu V$)")
-    # plt.legend()
+    # fitting original data from these guesses using curve_fit
+    popt, pcov = curve_fit(model,frequencies,data,p0=initial_guess)
 
     # plotting 2
     # Create figure with 1 row, 2 columns
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
 
     # Left subplot: fit, baseline and amplitude data
-    axes[0].plot(frequencies,abs(s_out_in(frequencies, *result.x)), label="Purcell fit")
+    axes[0].plot(frequencies,abs(s_out_in(frequencies, *popt)), label="Purcell fit")
     axes[0].scatter(frequencies,abs(data),label="data",alpha=0.3, marker=".", c="orange")
     axes[0].plot(frequencies,z, label="baseline from ALS", c="green")
     axes[0].set_ylabel(r"Amplitude($\mu V$)")
@@ -107,10 +95,10 @@ def fit_purcell(
     axes[0].legend()
 
     # Right subplot: phase fit and data
-    axes[1].plot(frequencies,np.angle(s_out_in(frequencies, *result.x)), label="Purcell fit")
+    axes[1].plot(frequencies,np.angle(s_out_in(frequencies, *popt)), label="Purcell fit")
     axes[1].scatter(frequencies,phases,label="data",alpha=0.3, marker=".", c="orange")
     axes[1].set_ylabel("Phase(rad)")
     axes[1].set_xlabel("w(MHz)")
     axes[1].legend()
 
-    return red_chi2, result.x
+    return pcov, popt
