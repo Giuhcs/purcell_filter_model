@@ -25,18 +25,12 @@ def fit_purcell(
     data, # signal for each frequency value
     #sigmas, # uncertainties
 ):
-    phases = np.angle(data).copy()
+    phases = np.angle(data).copy() # used below only for plotting ends
     data = abs(data)
 
     ##### first we find the peaks to have initial guesses for w_l, w_k, k_l, k_h #####
     # removing baseline to find the peaks
     z = baseline_als(data=data,lamda=1e9,p=0.999)
-
-    # initial guesses for A, k and w_0 from removal
-    w_0=frequencies[len(frequencies)//2] # the center of the spectrum is chosen to be the middle point of frequencies
-    w_0_guess = w_0
-    k_guess = (z[-1]-z[0])/(frequencies[-1]-frequencies[0]) * w_0_guess # slope of the baseline as guess for k
-    A_guess = z[len(frequencies)//2] # value of the baseline in the middle point as guess for A
 
     # finding the peaks and their widths
     peaks, properties = find_peaks(-(data-z)/abs(min(data-z)),height=0.0, prominence=0.5) # height filters peaks above 0
@@ -73,21 +67,23 @@ def fit_purcell(
     ##### wrapping up all the initial guesses and fitting the model to the original data #####
     # initial guess
     phi_guess = phases[np.argmax(frequencies - w_r_guess)] # phi_guess is taken as the phase of the signal point corresponding to the furthest frequency to w_r
-    initial_guess = [A_guess, k_guess, w_0_guess, phi_guess, k_p_guess, w_p_guess, w_r_guess, J_guess]
+    initial_guess = [phi_guess, k_p_guess, w_p_guess, w_r_guess, J_guess]
 
     # model to fit
-    def model(w,A,k,w_0,phi,k_p,w_p,w_r,J): # params should follow the same ordering convention as always
-        return abs(s_out_in(w,A,k,w_0,phi,k_p,w_p,w_r,J))
+    def model(w,phi,k_p,w_p,w_r,J): # relevant params include the ones not in the linear baseline only
+        return abs(s_out_in(w,1,0,0,phi,k_p,w_p,w_r,J)) # model assume data to be fit is normalized by baseline
 
-    # fitting original data from these guesses using curve_fit
-    popt, pcov = curve_fit(model,frequencies,data,p0=initial_guess)
+    # fitting data normalized by baseline from these guesses using curve_fit
+    popt, pcov = curve_fit(model,frequencies,data/z,p0=initial_guess)
 
     # plotting 2
     # Create figure with 1 row, 2 columns
     fig, axes = plt.subplots(1, 2, figsize=(16, 6))
 
+    params = [1,0,0,*popt] # 1 because we assume fit from data normalized by baseline
+
     # Left subplot: fit, baseline and amplitude data
-    axes[0].plot(frequencies,abs(s_out_in(frequencies, *popt)), label="Purcell fit")
+    axes[0].plot(frequencies,abs(s_out_in(frequencies, *params))*z, label="Purcell fit")
     axes[0].scatter(frequencies,abs(data),label="data",alpha=0.3, marker=".", c="orange")
     axes[0].plot(frequencies,z, label="baseline from ALS", c="green")
     axes[0].set_ylabel(r"Amplitude($\mu V$)")
@@ -95,7 +91,7 @@ def fit_purcell(
     axes[0].legend()
 
     # Right subplot: phase fit and data
-    axes[1].plot(frequencies,np.angle(s_out_in(frequencies, *popt)), label="Purcell fit")
+    axes[1].plot(frequencies,np.angle(s_out_in(frequencies, *params)), label="Purcell fit")
     axes[1].scatter(frequencies,phases,label="data",alpha=0.3, marker=".", c="orange")
     axes[1].set_ylabel("Phase(rad)")
     axes[1].set_xlabel("w(MHz)")
